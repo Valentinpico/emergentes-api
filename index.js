@@ -1,70 +1,49 @@
-import express from "express";
-import { connect, Schema as _Schema, model } from "mongoose";
-import cors from "cors";
+const mqtt = require("mqtt");
 
-await connect(
-  "mongodb+srv://valentin:sSD00Gh9S7kEsBIA@clustersubasta.iuhqixc.mongodb.net/"
-);
+// Datos del servidor MQTT
+const mqtt_server = "broker.emqx.io";
+const mqtt_port = 1883;
+const mqtt_topic_sub = "movimiento/01";
 
-const Schema = _Schema;
-const ClimaSchema = new Schema({
-  mov: Boolean,
-  lugar: String,
-  fecha: Date,
+// Conexión al servidor MQTT
+const client = mqtt.connect(`mqtt://${mqtt_server}:${mqtt_port}`);
+
+// Evento cuando la conexión es exitosa
+client.on("connect", () => {
+  console.log("Conexión exitosa al servidor MQTT");
+  // Suscribirse al tema
+  client.subscribe(mqtt_topic_sub, (err) => {
+    if (!err) {
+      console.log(`Suscrito al tema: ${mqtt_topic_sub}`);
+    }
+  });
 });
-const Clima = model("Clima", ClimaSchema);
 
-const app = express();
-
-app.use(cors());
-app.use(express.json());
-
-app.post("/clima", async (req, res) => {
-  const data = req.body;
-  try {
-    const newClima = new Clima({ ...data, fecha: new Date().toISOString() });
-    await newClima.save();
-    res.send({ res: "Clima creado exitosamente." });
-  } catch (error) {
-    console.error(error);
-    res.status(500).send("Error al crear el clima.");
-  }
-});
-//obtener el ultimo clima
-app.get("/clima", async (req, res) => {
-  try {
-    const totalDocuments = await Clima.countDocuments();
-    let clima = await Clima.findOne().sort({ _id: -1 }).limit(1);
-    clima = { ...clima._doc, totalDocuments };
-    res.json(clima);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send("Error al obtener el clima.");
-  }
-});
-//borrar todo el clima
-app.delete("/clima", async (req, res) => {
-  try {
-    await Clima.deleteMany();
-    res.send("Clima borrado exitosamente.");
-  } catch (error) {
-    console.error(error);
-    res.status(500).send("Error al borrar el clima.");
-  }
-});
-//obtener todos los climas de un lugar
-app.get("/clima/:lugar", async (req, res) => {
-  try {
-    const { lugar } = req.params;
-    const climas = await Clima.find({ lugar });
-    res.json(climas);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send("Error al obtener el clima.");
+// Evento cuando se recibe un mensaje en el tema suscrito
+client.on("message", async (topic, message) => {
+    console.log("Mensaje recibido desde el servidor MQTT");   
+  if (topic === mqtt_topic_sub) {
+    
+    const data = await JSON.parse(message.toString());
+     sendDataToAPI(data);
   }
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Servidor en http://localhost:${PORT}`);
+// Manejar errores de conexión
+client.on("error", (error) => {
+  console.error(`Error de conexión al servidor MQTT: ${error}`);
 });
+
+function sendDataToAPI(data) {
+  console.log(data);
+  fetch("https://emergentes-api-dev-xqhh.2.us-1.fl0.io/clima", {
+    method: "POST",
+    body: JSON.stringify(data),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
+    .then((res) => res.json())
+    .catch((error) => console.error("Error:", error))
+    .then((response) => console.log("Success:", response));
+}
